@@ -7,6 +7,12 @@ import time
 from typing import Dict, Any, Optional, List
 import httpx
 from pydantic import BaseModel, Field, ValidationError, validator
+from datetime import datetime
+try:
+    from dateutil import parser as date_parser
+    HAS_DATEUTIL = True
+except ImportError:
+    HAS_DATEUTIL = False
 
 from utils.io_utils import log_info, log_warn, log_error, log_debug, print_substep, print_spinner_message, print_spinner_complete
 from utils.url_utils import clean_url_for_display
@@ -108,8 +114,9 @@ Extract and return a single JSON object with exactly these keys:
 }}
 
 Rules:
-- If date is a range like "June 2–4, 2025", set start_date and end_date accordingly.
-- If only a single date is present, set end_date = start_date.
+- CRITICAL: Dates must be in YYYY-MM-DD format only. Examples: "2025-08-08", "2025-12-31". Never use formats like "August 8, 2025" or "Aug 8, 2025".
+- If date is a range like "June 2–4, 2025", convert to ISO format: start_date="2025-06-02", end_date="2025-06-04".
+- If only a single date is present, set end_date = start_date (both in YYYY-MM-DD format).
 - If only a month/day without year is given, infer year from page context (URL or metadata) if possible; otherwise null.
 - Times like "7pm" -> "19:00". If an end time isn't present but duration is (e.g., "2 hours"), compute end_time when start_time is known.
 - Address: include venue name and city/state if present; otherwise the best available location string.
@@ -278,7 +285,65 @@ Return only the JSON object, no additional text."""
         else:
             processed['topics'] = []
         
+        # Parse and normalize dates if needed
+        for date_field in ['start_date', 'end_date']:
+            date_value = processed.get(date_field)
+            if date_value and not self._is_iso_date_format(date_value):
+                parsed_date = self._parse_date_to_iso(date_value)
+                if parsed_date:
+                    log_debug(f"Converted {date_field} from '{date_value}' to '{parsed_date}'")
+                    processed[date_field] = parsed_date
+                else:
+                    log_debug(f"Failed to parse {date_field} '{date_value}', setting to None")
+                    processed[date_field] = None
+        
         return processed
+    
+    def _is_iso_date_format(self, date_str: str) -> bool:
+        """Check if date string is in YYYY-MM-DD format."""
+        if not date_str or date_str == "null":
+            return True
+        return re.match(r'^\d{4}-\d{2}-\d{2}$', date_str) is not None
+    
+    def _parse_date_to_iso(self, date_str: str) -> Optional[str]:
+        """
+        Parse various date formats to ISO YYYY-MM-DD format.
+        
+        Args:
+            date_str: Date string to parse
+            
+        Returns:
+            ISO formatted date string or None if parsing fails
+        """
+        if not date_str or date_str.lower() == "null":
+            return None
+        
+        # Try dateutil parser if available
+        if HAS_DATEUTIL:
+            try:
+                parsed = date_parser.parse(date_str)
+                return parsed.strftime('%Y-%m-%d')
+            except (ValueError, TypeError):
+                pass
+        
+        # Fallback: try common formats manually
+        common_formats = [
+            '%B %d, %Y',     # "August 8, 2025"
+            '%b %d, %Y',     # "Aug 8, 2025"  
+            '%m/%d/%Y',      # "8/8/2025"
+            '%m-%d-%Y',      # "8-8-2025"
+            '%Y/%m/%d',      # "2025/8/8"
+        ]
+        
+        for fmt in common_formats:
+            try:
+                parsed = datetime.strptime(date_str, fmt)
+                return parsed.strftime('%Y-%m-%d')
+            except ValueError:
+                continue
+        
+        log_debug(f"Could not parse date: {date_str}")
+        return None
     
     def extract(self, markdown: str, source_url: str, detail_url: str, 
                 image_hint: Optional[str] = None, max_retries: int = 1) -> Dict[str, Any]:
