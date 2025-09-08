@@ -10,7 +10,8 @@ from bs4 import BeautifulSoup
 
 from link_pattern import is_event_link, is_next_link, should_exclude_link
 from utils.url_utils import to_absolute, normalize, URLDeduplicator, get_domain, clean_url_for_display
-from utils.io_utils import log_info, log_warn, log_error, log_debug
+from utils.io_utils import (log_info, log_warn, log_error, log_debug, 
+                           print_substep, print_final_substep, print_spinner_message, print_spinner_complete)
 
 
 class ListingCrawler:
@@ -172,12 +173,12 @@ class ListingCrawler:
         pages_crawled = 0
         visited_urls = set()
         
-        log_info(f"Starting discovery from: {clean_url_for_display(current_url)}")
+        print_substep(f"Starting from: {clean_url_for_display(current_url)}")
         
         while current_url and pages_crawled < max_pages:
             # Avoid infinite loops
             if current_url in visited_urls:
-                log_warn(f"Already visited {clean_url_for_display(current_url)}, stopping")
+                print_substep(f"Already visited {clean_url_for_display(current_url)}, stopping", status="⚠️")
                 break
             
             visited_urls.add(current_url)
@@ -185,38 +186,48 @@ class ListingCrawler:
             
             try:
                 # Fetch the page
+                print_substep(f"Fetching page {pages_crawled}/{max_pages}: {clean_url_for_display(current_url)}")
                 html = self._fetch_page(current_url)
-                log_info(f"Crawled page {pages_crawled}: {clean_url_for_display(current_url)}")
                 
                 # Extract all links
                 links = self._extract_links_from_html(html, current_url)
-                log_debug(f"Found {len(links)} total links")
+                print_substep(f"Found {len(links)} total links, filtering for events...")
                 
                 # Filter for event links
                 event_urls = self._filter_event_links(links, base_domain)
                 all_event_urls.extend(event_urls)
-                log_info(f"Found {len(event_urls)} event links on page {pages_crawled}")
+                
+                if event_urls:
+                    print_substep(f"✓ Discovered {len(event_urls)} event links on page {pages_crawled}")
+                    # Show first few URLs for detailed feedback
+                    for url in event_urls[:2]:  # Show first 2 URLs
+                        log_debug(f"  → {clean_url_for_display(url, 60)}")
+                    if len(event_urls) > 2:
+                        log_debug(f"  → ... and {len(event_urls) - 2} more")
+                else:
+                    print_substep(f"No event links found on page {pages_crawled}")
                 
                 # Find next page link (only if we haven't reached max pages)
                 if pages_crawled < max_pages:
+                    print_substep("Looking for next page...")
                     next_url = self._find_next_page_link(links)
                     if next_url:
                         current_url = next_url
-                        log_info(f"Found next page: {clean_url_for_display(next_url)}")
+                        print_substep(f"→ Next page: {clean_url_for_display(next_url)}")
                         # Sleep before next request
                         self._sleep_politely()
                     else:
-                        log_info("No next page found, pagination complete")
+                        print_substep("No next page found, pagination complete")
                         break
                 else:
                     break
                 
             except Exception as e:
-                log_error(f"Error crawling page {pages_crawled} ({clean_url_for_display(current_url)}): {e}")
+                print_substep(f"Error on page {pages_crawled}: {str(e)[:50]}...", status="✗")
                 break
         
         unique_count = len(set(all_event_urls))
-        log_info(f"Discovery complete: {unique_count} unique event URLs found across {pages_crawled} pages")
+        print_substep(f"Crawled {pages_crawled} pages")
         
         # Return deduplicated list
         return list(dict.fromkeys(all_event_urls))

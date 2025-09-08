@@ -8,7 +8,7 @@ import asyncio
 from crawl4ai import AsyncWebCrawler
 from bs4 import BeautifulSoup
 
-from utils.io_utils import log_info, log_warn, log_error, log_debug
+from utils.io_utils import log_info, log_warn, log_error, log_debug, print_substep, print_spinner_message, print_spinner_complete
 from utils.url_utils import clean_url_for_display
 
 
@@ -184,10 +184,11 @@ class DetailScraper:
         for attempt in range(self.max_retries):
             try:
                 if attempt > 0:
-                    log_warn(f"Retry {attempt + 1}/{self.max_retries} for {clean_url_for_display(url)}")
+                    log_debug(f"Retry {attempt + 1}/{self.max_retries} for {clean_url_for_display(url)}")
                     time.sleep(1.0)  # Fixed delay between retries
                 
-                # Use Crawl4AI to scrape
+                # Use Crawl4AI to scrape with status feedback
+                log_debug(f"Rendering page with Crawl4AI...")
                 result = await self.crawler.arun(
                     url=url,
                     word_count_threshold=10,
@@ -199,9 +200,11 @@ class DetailScraper:
                 
                 if result.success and result.markdown:
                     # Extract best image from HTML
+                    log_debug(f"Extracting best image...")
                     image_url = self._extract_best_image(result.html, url)
                     
-                    log_info(f"Scraped {clean_url_for_display(url)} - {len(result.markdown)} chars")
+                    content_length = len(result.markdown)
+                    log_debug(f"Successfully scraped {content_length:,} chars from {clean_url_for_display(url)}")
                     
                     return {
                         'content_markdown': result.markdown.strip(),
@@ -209,18 +212,20 @@ class DetailScraper:
                     }
                 else:
                     error_msg = result.error_message if hasattr(result, 'error_message') else "Unknown error"
-                    log_error(f"Crawl4AI failed for {clean_url_for_display(url)}: {error_msg}")
+                    log_debug(f"Crawl4AI failed for {clean_url_for_display(url)}: {error_msg}")
                     
                     if attempt == self.max_retries - 1:
+                        log_debug(f"All retry attempts failed for {clean_url_for_display(url)}")
                         return {
                             'content_markdown': "",
                             'image_url': None
                         }
                     
             except Exception as e:
-                log_error(f"Exception scraping {clean_url_for_display(url)} (attempt {attempt + 1}): {e}")
+                log_debug(f"Exception scraping {clean_url_for_display(url)} (attempt {attempt + 1}): {e}")
                 
                 if attempt == self.max_retries - 1:
+                    log_debug(f"Final attempt failed for {clean_url_for_display(url)}")
                     return {
                         'content_markdown': "",
                         'image_url': None

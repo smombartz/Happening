@@ -3,11 +3,12 @@ LLM-based field extraction using local Ollama Mistral model.
 """
 import json
 import re
+import time
 from typing import Dict, Any, Optional
 import httpx
 from pydantic import BaseModel, Field, ValidationError
 
-from utils.io_utils import log_info, log_warn, log_error, log_debug
+from utils.io_utils import log_info, log_warn, log_error, log_debug, print_substep, print_spinner_message, print_spinner_complete
 from utils.url_utils import clean_url_for_display
 
 
@@ -252,32 +253,44 @@ Return only the JSON object, no additional text."""
         log_debug(f"Extracting fields from {clean_url_for_display(detail_url)}")
         
         prompt = self._build_extraction_prompt(markdown, source_url, detail_url)
+        log_debug(f"Built prompt: {len(prompt)} chars")
         
         for attempt in range(max_retries + 1):
             try:
                 if attempt > 0:
-                    log_warn(f"Retry {attempt + 1}/{max_retries + 1} for extraction: {clean_url_for_display(detail_url)}")
+                    log_debug(f"Retry {attempt + 1}/{max_retries + 1} for extraction: {clean_url_for_display(detail_url)}")
                 
-                # Call LLM
+                # Call LLM with timing
+                llm_start = time.time()
+                log_debug(f"Sending {len(markdown)} chars of content to LLM...")
                 response = self._call_ollama(prompt)
-                log_debug(f"LLM response length: {len(response)} chars")
+                llm_time = time.time() - llm_start
+                
+                log_debug(f"LLM responded in {llm_time:.1f}s, response length: {len(response)} chars")
                 
                 # Extract and validate JSON
+                log_debug(f"Parsing JSON response...")
                 raw_data = self._extract_json_from_response(response)
+                log_debug(f"Validating extracted data...")
                 validated_data = self._validate_extraction(raw_data)
                 
                 # Post-process
                 final_data = self._post_process_extraction(validated_data, image_hint)
                 
-                log_info(f"Extracted fields from {clean_url_for_display(detail_url)}: {final_data.get('title', 'No title')}")
+                # Log successful extraction details
+                title = final_data.get('title', 'No title')
+                date = final_data.get('start_date', 'No date')
+                location = final_data.get('location_address', 'No location')
+                
+                log_debug(f"Successfully extracted: '{title}' on {date} at {location}")
                 return final_data
                 
             except (ValueError, ValidationError, json.JSONDecodeError) as e:
-                log_error(f"Extraction attempt {attempt + 1} failed for {clean_url_for_display(detail_url)}: {e}")
+                log_debug(f"Extraction attempt {attempt + 1} failed for {clean_url_for_display(detail_url)}: {e}")
                 
                 if attempt == max_retries:
                     # Return minimal valid data on final failure
-                    log_error(f"All extraction attempts failed for {clean_url_for_display(detail_url)}")
+                    log_debug(f"All extraction attempts failed for {clean_url_for_display(detail_url)}")
                     return {
                         "title": None,
                         "start_date": None,
@@ -293,7 +306,7 @@ Return only the JSON object, no additional text."""
                     }
             
             except Exception as e:
-                log_error(f"Unexpected error in extraction for {clean_url_for_display(detail_url)}: {e}")
+                log_debug(f"Unexpected error in extraction for {clean_url_for_display(detail_url)}: {e}")
                 
                 if attempt == max_retries:
                     return {

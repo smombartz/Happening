@@ -179,6 +179,189 @@ def print_progress(current: int, total: int, prefix: str = "") -> None:
     print(message, file=sys.stderr)
 
 
+def print_progress_bar(current: int, total: int, width: int = 40, 
+                      prefix: str = "", suffix: str = "", rate: float = None, 
+                      eta_seconds: int = None) -> None:
+    """
+    Print an animated progress bar with additional stats.
+    
+    Args:
+        current: Current progress count
+        total: Total count
+        width: Width of the progress bar in characters
+        prefix: Text to show before progress bar
+        suffix: Text to show after progress bar
+        rate: Processing rate (items per minute)
+        eta_seconds: Estimated time remaining in seconds
+    """
+    if total == 0:
+        return
+    
+    percentage = (current / total) * 100
+    filled_width = int(width * current / total)
+    bar = "█" * filled_width + "░" * (width - filled_width)
+    
+    # Build the progress line
+    parts = []
+    if prefix:
+        parts.append(prefix)
+    
+    parts.append(f"{bar} {current}/{total} ({percentage:.1f}%)")
+    
+    if rate is not None:
+        parts.append(f"│ {rate:.1f} items/min")
+    
+    if eta_seconds is not None:
+        eta_mins, eta_secs = divmod(eta_seconds, 60)
+        if eta_mins > 0:
+            parts.append(f"│ ETA: {eta_mins}m {eta_secs}s")
+        else:
+            parts.append(f"│ ETA: {eta_secs}s")
+    
+    if suffix:
+        parts.append(suffix)
+    
+    # Print to stderr and flush
+    print(" ".join(parts), file=sys.stderr, flush=True)
+
+
+def print_status(message: str, icon: str = "ℹ️") -> None:
+    """
+    Print a status message with icon and formatting.
+    
+    Args:
+        message: Status message to display
+        icon: Icon/emoji to show before message
+    """
+    print(f"\n{icon} {message.upper()}", file=sys.stderr, flush=True)
+
+
+def print_substep(message: str, indent: int = 1, status: str = "→") -> None:
+    """
+    Print a sub-step with indentation and status indicator.
+    
+    Args:
+        message: Message to display
+        indent: Indentation level
+        status: Status indicator (→, ✓, ✗, etc.)
+    """
+    prefix = "├─" if status == "→" else "├─"
+    if status == "✓":
+        prefix = "├─ ✓"
+    elif status == "✗":
+        prefix = "├─ ✗"
+    elif status == "⏳":
+        prefix = "├─ ⏳"
+    
+    indentation = "  " * (indent - 1) if indent > 1 else ""
+    print(f"{indentation}{prefix} {message}", file=sys.stderr, flush=True)
+
+
+def print_final_substep(message: str, indent: int = 1, status: str = "✓") -> None:
+    """
+    Print the final sub-step with different formatting.
+    
+    Args:
+        message: Message to display
+        indent: Indentation level
+        status: Status indicator
+    """
+    prefix = "└─"
+    if status == "✓":
+        prefix = "└─ ✓"
+    elif status == "✗":
+        prefix = "└─ ✗"
+    
+    indentation = "  " * (indent - 1) if indent > 1 else ""
+    print(f"{indentation}{prefix} {message}", file=sys.stderr, flush=True)
+
+
+def print_section_header(title: str, char: str = "=") -> None:
+    """
+    Print a section header with decorative border.
+    
+    Args:
+        title: Section title
+        char: Character to use for border
+    """
+    border = char * max(60, len(title) + 4)
+    print(f"\n{border}", file=sys.stderr)
+    print(f" {title.upper()}", file=sys.stderr)
+    print(f"{border}", file=sys.stderr, flush=True)
+
+
+def print_timer(operation: str, duration_seconds: float) -> None:
+    """
+    Print timing information for an operation.
+    
+    Args:
+        operation: Name of the operation
+        duration_seconds: Duration in seconds
+    """
+    if duration_seconds < 60:
+        time_str = f"{duration_seconds:.1f}s"
+    else:
+        minutes = int(duration_seconds // 60)
+        seconds = duration_seconds % 60
+        time_str = f"{minutes}m {seconds:.1f}s"
+    
+    print(f"⏱️  {operation} completed in {time_str}", file=sys.stderr, flush=True)
+
+
+def print_stats(stats: Dict[str, Any], title: str = "Statistics") -> None:
+    """
+    Print statistics in a formatted way.
+    
+    Args:
+        stats: Dictionary of statistics to display
+        title: Title for the statistics section
+    """
+    print(f"\n📊 {title.upper()}", file=sys.stderr)
+    for key, value in stats.items():
+        # Format large numbers with commas
+        if isinstance(value, (int, float)) and value >= 1000:
+            if isinstance(value, float):
+                formatted_value = f"{value:,.1f}"
+            else:
+                formatted_value = f"{value:,}"
+        else:
+            formatted_value = str(value)
+        
+        # Clean up key formatting
+        display_key = key.replace('_', ' ').title()
+        print(f"   {display_key}: {formatted_value}", file=sys.stderr)
+    print("", file=sys.stderr, flush=True)
+
+
+def print_spinner_message(message: str) -> None:
+    """
+    Print a message indicating a long-running operation is in progress.
+    
+    Args:
+        message: Message to display
+    """
+    print(f"⏳ {message}...", file=sys.stderr, end=" ", flush=True)
+
+
+def print_spinner_complete(success: bool = True, result_message: str = "") -> None:
+    """
+    Complete a spinner message with success/failure indication.
+    
+    Args:
+        success: Whether the operation was successful
+        result_message: Optional result message to display
+    """
+    if success:
+        status = "✓"
+    else:
+        status = "✗"
+    
+    if result_message:
+        print(f"{status} {result_message}", file=sys.stderr, flush=True)
+    else:
+        print(f"{status}", file=sys.stderr, flush=True)
+
+
 def safe_filename(filename: str, max_length: int = 100) -> str:
     """
     Make a filename safe by removing/replacing problematic characters.
