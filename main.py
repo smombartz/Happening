@@ -31,17 +31,23 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Discover and scrape events
+  # Discover and scrape all events from up to 10 listing pages
   python main.py --url https://example.com/events
+  
+  # Limit to 2 listing pages, process all discovered events
+  python main.py --url https://example.com/events --max-pages 2
+  
+  # Limit to 2 listing pages, process only first 5 events
+  python main.py --url https://example.com/events --max-pages 2 --max-events 5
+  
+  # Process only first 10 events (unlimited discovery)
+  python main.py --url https://example.com/events --max-events 10
   
   # Test mode (discovery only)
   python main.py --url https://example.com/events --test
   
-  # Custom output file and pagination limit
-  python main.py --url https://example.com/events --output my_events.jsonl --max-pages 5
-  
-  # Verbose logging
-  python main.py --url https://example.com/events --verbose
+  # Custom output file with verbose logging
+  python main.py --url https://example.com/events --output my_events.jsonl --verbose
         """
     )
     
@@ -67,7 +73,14 @@ Examples:
         '--max-pages',
         type=int,
         default=10,
-        help='Maximum pages to crawl for discovery (default: 10)'
+        help='Maximum listing pages to crawl for discovery (default: 10)'
+    )
+    
+    parser.add_argument(
+        '--max-events',
+        type=int,
+        default=None,
+        help='Maximum number of individual events to process (default: unlimited)'
     )
     
     parser.add_argument(
@@ -139,7 +152,11 @@ def main():
     
     print_section_header("Event Scraper Starting")
     print_substep(f"Target URL: {clean_url_for_display(args.url)}")
-    print_substep(f"Max pages: {args.max_pages}")
+    print_substep(f"Max listing pages: {args.max_pages}")
+    if args.max_events:
+        print_substep(f"Max events to process: {args.max_events}")
+    else:
+        print_substep(f"Max events to process: unlimited")
     print_final_substep(f"Output file: {args.output}")
     
     try:
@@ -157,6 +174,12 @@ def main():
             return 1
         
         print_final_substep(f"Discovery complete: {len(detail_urls)} unique events found")
+        
+        # Apply max-events limit to discovered URLs
+        if args.max_events and len(detail_urls) > args.max_events:
+            detail_urls = detail_urls[:args.max_events]
+            print_substep(f"Limited to first {args.max_events} events (--max-events)", status="⚠️")
+        
         print_timer("Discovery", discovery_time)
         
         # Test mode: just print URLs and exit
@@ -165,10 +188,16 @@ def main():
             for i, url in enumerate(detail_urls, 1):
                 print(f"{i:3d}. {url}")
             
-            print_stats({
+            stats = {
                 "total_urls_discovered": len(detail_urls),
                 "discovery_time": f"{discovery_time:.1f}s"
-            }, "Discovery Summary")
+            }
+            if args.max_events:
+                stats["max_events_limit"] = args.max_events
+            if args.max_pages != 10:  # Only show if not default
+                stats["max_pages_limit"] = args.max_pages
+            
+            print_stats(stats, "Discovery Summary")
             return 0
         
         # Check Ollama availability before scraping
@@ -202,6 +231,8 @@ def main():
         
         # Step 2: Scraping and Extraction
         print_status("Scraping and Extracting", "🔄")
+        print_substep(f"Will process {len(detail_urls)} events")
+        
         processing_start = time.time()
         
         from extractor.llm_extractor import LLMExtractor
@@ -296,14 +327,22 @@ def main():
         final_count = count_jsonl_lines(str(output_path))
         success_rate = (successful_extractions / len(detail_urls)) * 100 if detail_urls else 0
         
-        print_stats({
-            "urls_discovered": len(detail_urls),
+        final_stats = {
+            "events_processed": len(detail_urls),
             "successful_extractions": successful_extractions,
             "failed_extractions": failed_extractions,
             "success_rate": f"{success_rate:.1f}%",
             "final_records_in_file": final_count,
             "avg_processing_time": f"{processing_time/len(detail_urls):.1f}s per item" if detail_urls else "N/A"
-        }, "Final Summary")
+        }
+        
+        # Add limit information if applied
+        if args.max_events:
+            final_stats["max_events_limit"] = f"{args.max_events} (applied)"
+        if args.max_pages != 10:
+            final_stats["max_pages_limit"] = args.max_pages
+        
+        print_stats(final_stats, "Final Summary")
         
         print_final_substep(f"Results saved to: {output_path.absolute()}")
         
