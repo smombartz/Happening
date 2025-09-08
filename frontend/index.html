@@ -26,15 +26,37 @@
             margin-bottom: 2rem;
         }
         
-        .search-input {
-            width: 100%;
-            max-width: 400px;
+        .filter-controls {
+            display: flex;
+            gap: 1rem;
+            max-width: 600px;
             margin: 0 auto;
-            display: block;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .search-input {
+            flex: 1;
+            min-width: 250px;
             border: 1px solid #ddd;
             border-radius: 4px;
             padding: 0.75rem;
             font-size: 0.9rem;
+        }
+        
+        .domain-filter {
+            min-width: 180px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 0.75rem;
+            font-size: 0.9rem;
+            background: white;
+            cursor: pointer;
+        }
+        
+        .domain-filter:focus {
+            outline: 2px solid #0066cc;
+            outline-offset: 2px;
         }
         
         .events-grid {
@@ -135,7 +157,12 @@
         <h1>Events</h1>
         
         <div class="search-container">
-            <input type="text" id="searchInput" class="search-input" placeholder="Search events..." autocomplete="off">
+            <div class="filter-controls">
+                <input type="text" id="searchInput" class="search-input" placeholder="Search events..." autocomplete="off">
+                <select id="domainFilter" class="domain-filter">
+                    <option value="">All Domains</option>
+                </select>
+            </div>
         </div>
         
         <div id="eventsContainer">

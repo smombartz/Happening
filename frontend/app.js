@@ -2,6 +2,7 @@
 let allEvents = [];
 let fuse;
 let currentEvents = [];
+let availableDomains = [];
 
 // Handlebars template
 const eventTemplate = `
@@ -71,6 +72,42 @@ Handlebars.registerHelper('truncateDescription', function(description) {
     return description.length > 120 ? description.substring(0, 120) + '...' : description;
 });
 
+// Extract domain from URL
+function extractDomain(url) {
+    if (!url) return null;
+    try {
+        const urlObj = new URL(url);
+        return urlObj.hostname;
+    } catch (e) {
+        return null;
+    }
+}
+
+// Get unique domains from events and populate dropdown
+function populateDomainFilter() {
+    const domains = new Set();
+    
+    allEvents.forEach(event => {
+        const sourceDomain = extractDomain(event.source_url);
+        if (sourceDomain) {
+            domains.add(sourceDomain);
+        }
+    });
+    
+    availableDomains = Array.from(domains).sort();
+    
+    const domainFilter = document.getElementById('domainFilter');
+    // Clear existing options except "All Domains"
+    domainFilter.innerHTML = '<option value="">All Domains</option>';
+    
+    availableDomains.forEach(domain => {
+        const option = document.createElement('option');
+        option.value = domain;
+        option.textContent = domain;
+        domainFilter.appendChild(option);
+    });
+}
+
 // Load and parse events from JSONL file
 async function loadEvents() {
     try {
@@ -95,6 +132,9 @@ async function loadEvents() {
         
         // Initialize Fuse.js for search
         initializeSearch();
+        
+        // Populate domain filter
+        populateDomainFilter();
         
         // Render initial events
         renderEvents();
@@ -144,13 +184,39 @@ function renderEvents() {
     container.innerHTML = html;
 }
 
-// Handle search input
+// Handle search and filtering
 function handleSearch(query) {
-    if (!query || query.trim() === '') {
-        currentEvents = [...allEvents];
-    } else {
-        const results = fuse.search(query.trim());
+    const domainFilter = document.getElementById('domainFilter').value;
+    
+    let filteredEvents = [...allEvents];
+    
+    // Apply domain filter first
+    if (domainFilter) {
+        filteredEvents = filteredEvents.filter(event => {
+            const sourceDomain = extractDomain(event.source_url);
+            return sourceDomain === domainFilter;
+        });
+    }
+    
+    // Apply search query
+    if (query && query.trim() !== '') {
+        const searchOptions = {
+            keys: [
+                { name: 'extraction.title', weight: 0.4 },
+                { name: 'extraction.description', weight: 0.3 },
+                { name: 'extraction.location_address', weight: 0.2 },
+                { name: 'content_markdown', weight: 0.1 }
+            ],
+            threshold: 0.4,
+            includeScore: true,
+            minMatchCharLength: 2
+        };
+        
+        const searchFuse = new Fuse(filteredEvents, searchOptions);
+        const results = searchFuse.search(query.trim());
         currentEvents = results.map(result => result.item);
+    } else {
+        currentEvents = filteredEvents;
     }
     
     renderEvents();
@@ -159,6 +225,7 @@ function handleSearch(query) {
 // Event listeners
 document.addEventListener('DOMContentLoaded', function() {
     const searchInput = document.getElementById('searchInput');
+    const domainFilter = document.getElementById('domainFilter');
     
     // Debounced search
     let searchTimeout;
@@ -167,6 +234,12 @@ document.addEventListener('DOMContentLoaded', function() {
         searchTimeout = setTimeout(() => {
             handleSearch(e.target.value);
         }, 300);
+    });
+    
+    // Domain filter change
+    domainFilter.addEventListener('change', function(e) {
+        const searchQuery = searchInput.value;
+        handleSearch(searchQuery);
     });
     
     // Load events on page load
@@ -181,9 +254,10 @@ document.addEventListener('keydown', function(e) {
         document.getElementById('searchInput').focus();
     }
     
-    // Clear search on Escape
+    // Clear search and filters on Escape
     if (e.key === 'Escape' && e.target.id === 'searchInput') {
         e.target.value = '';
+        document.getElementById('domainFilter').value = '';
         handleSearch('');
     }
 });
