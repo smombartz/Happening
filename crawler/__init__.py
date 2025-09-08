@@ -1,0 +1,1 @@
+"""Crawler package for event discovery and scraping."""
