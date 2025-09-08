@@ -4,12 +4,13 @@ LLM-based field extraction using local Ollama Mistral model.
 import json
 import re
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import httpx
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, validator
 
 from utils.io_utils import log_info, log_warn, log_error, log_debug, print_substep, print_spinner_message, print_spinner_complete
 from utils.url_utils import clean_url_for_display
+from config.tags import EVENT_TYPES, TOPICS, validate_event_type, validate_topics, format_tags_for_prompt
 
 
 class EventExtraction(BaseModel):
@@ -23,8 +24,25 @@ class EventExtraction(BaseModel):
     location_address: Optional[str] = Field(None, description="Location address")
     image_url: Optional[str] = Field(None, description="Event image URL")
     description: Optional[str] = Field(None, max_length=500, description="Event description (max 500 chars)")
+    event_type: Optional[str] = Field(None, description="Event type from predefined list")
+    topics: Optional[List[str]] = Field(default_factory=list, description="Event topics from predefined list")
     source_url: str = Field(..., description="Source listing URL")
     detail_url: str = Field(..., description="Event detail URL")
+    
+    @validator('event_type')
+    def validate_event_type_field(cls, v):
+        if v is not None and v not in EVENT_TYPES:
+            return None  # Return None for invalid types rather than raising error
+        return v
+    
+    @validator('topics')
+    def validate_topics_field(cls, v):
+        if v is None:
+            return []
+        if not isinstance(v, list):
+            return []
+        # Filter out invalid topics
+        return [topic for topic in v if topic in TOPICS]
 
 
 class LLMExtractor:
@@ -60,6 +78,8 @@ class LLMExtractor:
         if len(markdown) > max_markdown_length:
             markdown = markdown[:max_markdown_length] + "\n\n[...content truncated...]"
         
+        tags_info = format_tags_for_prompt()
+        
         prompt = f"""You are given:
 - detail_url: {detail_url}
 - source_url: {source_url}
@@ -67,6 +87,8 @@ class LLMExtractor:
 \"\"\"
 {markdown}
 \"\"\"
+
+{tags_info}
 
 Extract and return a single JSON object with exactly these keys:
 {{
@@ -79,6 +101,8 @@ Extract and return a single JSON object with exactly these keys:
     "location_address": string|null,
     "image_url": string|null,
     "description": string|null,
+    "event_type": string|null,
+    "topics": array of strings|null,
     "source_url": string,
     "detail_url": string
 }}
@@ -92,6 +116,9 @@ Rules:
 - Prefer og:image or twitter:image for image_url; else first main content image.
 - Keep description <= 500 chars, plain text, no markdown.
 - If multiple events are present, choose the primary event (largest heading or first dated block).
+- For event_type: choose exactly ONE type from the Available Event Types list that best matches this event.
+- For topics: choose 1-3 topics from the Available Topics list that best describe this event. Return as an array.
+- IMPORTANT: Only use event types and topics from the provided lists above. Do not create new categories.
 
 Return only the JSON object, no additional text."""
         
@@ -233,6 +260,24 @@ Return only the JSON object, no additional text."""
                 desc = desc[:497] + "..."
             processed['description'] = desc if desc else None
         
+        # Validate and clean tags (additional safety check)
+        if processed.get('event_type') and processed['event_type'] not in EVENT_TYPES:
+            log_debug(f"Invalid event_type '{processed['event_type']}' replaced with None")
+            processed['event_type'] = None
+        
+        if processed.get('topics'):
+            if not isinstance(processed['topics'], list):
+                processed['topics'] = []
+            else:
+                # Filter out invalid topics
+                valid_topics = [topic for topic in processed['topics'] if topic in TOPICS]
+                if len(valid_topics) != len(processed['topics']):
+                    invalid_topics = [topic for topic in processed['topics'] if topic not in TOPICS]
+                    log_debug(f"Removed invalid topics: {invalid_topics}")
+                processed['topics'] = valid_topics
+        else:
+            processed['topics'] = []
+        
         return processed
     
     def extract(self, markdown: str, source_url: str, detail_url: str, 
@@ -301,6 +346,8 @@ Return only the JSON object, no additional text."""
                         "location_address": None,
                         "image_url": image_hint,
                         "description": None,
+                        "event_type": None,
+                        "topics": [],
                         "source_url": source_url,
                         "detail_url": detail_url
                     }
@@ -319,6 +366,8 @@ Return only the JSON object, no additional text."""
                         "location_address": None,
                         "image_url": image_hint,
                         "description": None,
+                        "event_type": None,
+                        "topics": [],
                         "source_url": source_url,
                         "detail_url": detail_url
                     }
