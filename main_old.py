@@ -3,7 +3,7 @@
 Main CLI entrypoint for the event scraper.
 
 Usage:
-    python main.py --url <listing_url> [--mode <llm|scrapy>] [--output <path.jsonl>] [--test] [--max-pages <int>] [--verbose]
+    python main.py --url <listing_url> [--output <path.jsonl>] [--test] [--max-pages <int>] [--verbose]
 """
 import argparse
 import sys
@@ -13,7 +13,6 @@ from pathlib import Path
 
 from crawler.listing_crawler import discover_detail_urls
 from crawler.detail_scraper import scrape_markdown_sync
-from crawler.scrapy_scraper import scrape_with_scrapy
 from extractor.llm_extractor import extract
 from utils.io_utils import (
     setup_logging, log_info, log_warn, log_error, 
@@ -100,13 +99,13 @@ Examples:
     parser.add_argument(
         '--ollama-url',
         default='http://localhost:11434',
-        help='Ollama API URL (default: http://localhost:11434, LLM mode only)'
+        help='Ollama API URL (default: http://localhost:11434)'
     )
     
     parser.add_argument(
         '--model',
         default='mistral',
-        help='Ollama model name (default: mistral, LLM mode only)'
+        help='Ollama model name (default: mistral)'
     )
     
     return parser.parse_args()
@@ -149,139 +148,31 @@ def check_ollama_availability(ollama_url: str, model_name: str) -> bool:
         return False
 
 
-def prepare_output_file(output_path: Path) -> bool:
-    """Prepare output file, handle existing files."""
-    print_substep("Preparing output file")
+def main():
+    """Main CLI function."""
+    args = parse_args()
+    start_time = time.time()
     
-    if output_path.exists():
-        existing_count = count_jsonl_lines(str(output_path))
-        print_substep(f"Output file exists with {existing_count} existing records")
-        
-        # Ask user if they want to append or overwrite
-        try:
-            choice = input("Append to existing file? (y/n): ").lower().strip()
-            if choice not in ['y', 'yes']:
-                ensure_file_empty(str(output_path))
-                print_substep("Output file cleared", status="✓")
-            else:
-                print_substep("Will append to existing file", status="✓")
-        except KeyboardInterrupt:
-            print_final_substep("Cancelled by user", status="✗")
-            return False
+    # Set up logging
+    log_level = "DEBUG" if args.verbose else "INFO"
+    setup_logging(log_level)
+    
+    print_section_header("Event Scraper Starting")
+    print_substep(f"Target URL: {clean_url_for_display(args.url)}")
+    print_substep(f"Scraping mode: {args.mode.upper()}")
+    print_substep(f"Max listing pages: {args.max_pages}")
+    if args.max_events:
+        print_substep(f"Max events to process: {args.max_events}")
     else:
-        ensure_file_empty(str(output_path))
-        print_substep("Created new output file", status="✓")
-    
-    return True
-
-
-def run_scrapy_mode(args, start_time):
-    """Run scraping in Scrapy mode."""
-    print_status("Scrapy Mode - Rule-based Extraction", "🕷️")
+        print_substep(f"Max events to process: unlimited")
+    print_final_substep(f"Output file: {args.output}")
     
     try:
-        # Scrapy handles both discovery and extraction in one pass
-        print_substep("Starting Scrapy spider...")
-        results = scrape_with_scrapy(
-            listing_url=args.url,
-            max_pages=args.max_pages,
-            max_events=args.max_events
-        )
-        
-        if not results:
-            print_final_substep("No events extracted", status="✗")
-            return 1
-        
-        print_final_substep(f"Scrapy extraction complete: {len(results)} events found")
-        
-        # Test mode: just print results and exit
-        if args.test:
-            print_status("Test Mode - Extracted Events", "📋")
-            for i, event in enumerate(results, 1):
-                title = event.get('title', 'Untitled')
-                date = event.get('start_date', 'No date')
-                print(f"{i:3d}. {title} ({date})")
-            
-            total_time = time.time() - start_time
-            stats = {
-                "total_events_extracted": len(results),
-                "total_time": f"{total_time:.1f}s",
-                "extraction_mode": "Scrapy (rule-based)"
-            }
-            print_stats(stats, "Scrapy Test Summary")
-            return 0
-        
-        # Prepare output file
-        output_path = Path(args.output)
-        if not prepare_output_file(output_path):
-            return 1
-        
-        # Write results
-        print_status("Saving Results", "💾")
-        successful_saves = 0
-        
-        for i, event_data in enumerate(results, 1):
-            try:
-                # Create record compatible with LLM mode output
-                record = {
-                    'source_url': args.url,
-                    'detail_url': event_data.get('detail_url', ''),
-                    'content_markdown': '',  # Not available in Scrapy mode
-                    'extraction': event_data
-                }
-                
-                write_jsonl(str(output_path), record)
-                successful_saves += 1
-                
-                title = event_data.get('title', 'Untitled Event')
-                date = event_data.get('start_date', 'No date')
-                print_substep(f"Saved ({i}/{len(results)}): '{title}' ({date})", status="✓")
-                
-            except Exception as e:
-                print_substep(f"Failed to save event {i}: {str(e)[:50]}...", status="✗")
-                continue
-        
-        # Summary
-        total_time = time.time() - start_time
-        final_count = count_jsonl_lines(str(output_path))
-        success_rate = (successful_saves / len(results)) * 100 if results else 0
-        
-        print_status("Scrapy Mode Complete", "✅")
-        print_timer("Total Runtime", total_time)
-        
-        final_stats = {
-            "events_extracted": len(results),
-            "successful_saves": successful_saves,
-            "success_rate": f"{success_rate:.1f}%",
-            "final_records_in_file": final_count,
-            "extraction_mode": "Scrapy (rule-based)",
-            "avg_processing_time": f"{total_time/len(results):.2f}s per item" if results else "N/A"
-        }
-        
-        print_stats(final_stats, "Final Summary")
-        print_final_substep(f"Results saved to: {output_path.absolute()}")
-        
-        return 0
-        
-    except Exception as e:
-        print_status("Scrapy Mode Error", "❌")
-        print_substep(f"Error: {str(e)}", status="✗")
-        return 1
-
-
-def run_llm_mode(args, start_time):
-    """Run scraping in LLM mode."""
-    print_status("LLM Mode - AI Extraction with Tagging", "🤖")
-    
-    try:
-        # Step 1: Discovery
-        print_status("Discovering Events", "🔍")
-        discovery_start = time.time()
-        
-        print_substep(f"Fetching listing page: {clean_url_for_display(args.url)}")
-        detail_urls = discover_detail_urls(args.url, max_pages=args.max_pages)
-        
-        discovery_time = time.time() - discovery_start
+        # Branch based on scraping mode
+        if args.mode == 'scrapy':
+            return run_scrapy_mode(args, start_time)
+        else:
+            return run_llm_mode(args, start_time)
         
         if not detail_urls:
             print_final_substep("No event URLs discovered", status="✗")
@@ -322,9 +213,26 @@ def run_llm_mode(args, start_time):
         print_substep("Ollama ready", status="✓")
         
         # Prepare output file
+        print_substep("Preparing output file")
         output_path = Path(args.output)
-        if not prepare_output_file(output_path):
-            return 1
+        if output_path.exists():
+            existing_count = count_jsonl_lines(str(output_path))
+            print_substep(f"Output file exists with {existing_count} existing records")
+            
+            # Ask user if they want to append or overwrite
+            try:
+                choice = input("Append to existing file? (y/n): ").lower().strip()
+                if choice not in ['y', 'yes']:
+                    ensure_file_empty(str(output_path))
+                    print_substep("Output file cleared", status="✓")
+                else:
+                    print_substep("Will append to existing file", status="✓")
+            except KeyboardInterrupt:
+                print_final_substep("Cancelled by user", status="✗")
+                return 1
+        else:
+            ensure_file_empty(str(output_path))
+            print_substep("Created new output file", status="✓")
         
         # Step 2: Scraping and Extraction
         print_status("Scraping and Extracting", "🔄")
@@ -417,7 +325,7 @@ def run_llm_mode(args, start_time):
         processing_time = time.time() - processing_start
         total_time = time.time() - start_time
         
-        print_status("LLM Mode Complete", "✅")
+        print_status("Processing Complete", "✅")
         print_timer("Processing", processing_time)
         print_timer("Total Runtime", total_time)
         
@@ -440,44 +348,15 @@ def run_llm_mode(args, start_time):
             final_stats["max_pages_limit"] = args.max_pages
         
         print_stats(final_stats, "Final Summary")
+        
         print_final_substep(f"Results saved to: {output_path.absolute()}")
         
         return 0
         
-    except Exception as e:
-        print_status("LLM Mode Error", "❌")
-        print_substep(f"Error: {str(e)}", status="✗")
-        return 1
-
-
-def main():
-    """Main CLI function."""
-    args = parse_args()
-    start_time = time.time()
-    
-    # Set up logging
-    log_level = "DEBUG" if args.verbose else "INFO"
-    setup_logging(log_level)
-    
-    print_section_header("Event Scraper Starting")
-    print_substep(f"Target URL: {clean_url_for_display(args.url)}")
-    print_substep(f"Scraping mode: {args.mode.upper()}")
-    print_substep(f"Max listing pages: {args.max_pages}")
-    if args.max_events:
-        print_substep(f"Max events to process: {args.max_events}")
-    else:
-        print_substep(f"Max events to process: unlimited")
-    print_final_substep(f"Output file: {args.output}")
-    
-    try:
-        # Branch based on scraping mode
-        if args.mode == 'scrapy':
-            return run_scrapy_mode(args, start_time)
-        else:
-            return run_llm_mode(args, start_time)
-        
     except KeyboardInterrupt:
         print_status("Cancelled by user", "⚠️")
+        if 'successful_extractions' in locals() and successful_extractions > 0:
+            print_substep(f"Partial results: {successful_extractions} events saved before cancellation")
         return 1
         
     except Exception as e:
