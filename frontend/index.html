@@ -22,30 +22,33 @@
             padding: 0 1rem;
         }
         
-        .search-container {
+        .header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             margin-bottom: 2rem;
+            flex-wrap: wrap;
+            gap: 1rem;
         }
         
         .filter-controls {
             display: flex;
             gap: 1rem;
-            max-width: 600px;
-            margin: 0 auto;
             align-items: center;
-            flex-wrap: wrap;
+            flex-shrink: 0;
         }
         
         .search-input {
-            flex: 1;
-            min-width: 250px;
+            width: 250px;
             border: 1px solid #ddd;
             border-radius: 4px;
             padding: 0.75rem;
             font-size: 0.9rem;
+            background: white;
         }
         
         .domain-filter {
-            min-width: 180px;
+            width: 180px;
             border: 1px solid #ddd;
             border-radius: 4px;
             padding: 0.75rem;
@@ -54,9 +57,27 @@
             cursor: pointer;
         }
         
-        .domain-filter:focus {
+        .domain-filter:focus,
+        .search-input:focus {
             outline: 2px solid #0066cc;
             outline-offset: 2px;
+        }
+        
+        @media (max-width: 768px) {
+            .header-row {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .filter-controls {
+                justify-content: center;
+            }
+            
+            .search-input,
+            .domain-filter {
+                width: auto;
+                flex: 1;
+            }
         }
         
         .events-grid {
@@ -67,14 +88,19 @@
         }
         
         .event-card {
+            display: block;
             background: white;
             border: none;
             overflow: hidden;
             transition: transform 0.1s ease;
+            text-decoration: none;
+            color: inherit;
         }
         
         .event-card:hover {
             transform: scale(1.02);
+            text-decoration: none;
+            color: inherit;
         }
         
         .event-image {
@@ -118,17 +144,11 @@
             margin-bottom: 0.5rem;
         }
         
-        .event-link {
-            display: inline-block;
-            color: #000;
-            text-decoration: none;
-            font-size: 0.8rem;
+        .event-domain {
+            color: #999;
+            font-size: 0.75rem;
+            margin-top: 0.5rem;
             font-weight: normal;
-            opacity: 0.7;
-        }
-        
-        .event-link:hover {
-            opacity: 1;
         }
         
         .loading {
@@ -154,9 +174,8 @@
 </head>
 <body>
     <div class="container">
-        <h1>Events</h1>
-        
-        <div class="search-container">
+        <div class="header-row">
+            <h1>Events</h1>
             <div class="filter-controls">
                 <input type="text" id="searchInput" class="search-input" placeholder="Search events..." autocomplete="off">
                 <select id="domainFilter" class="domain-filter">

@@ -8,7 +8,7 @@ let availableDomains = [];
 const eventTemplate = `
 <div class="events-grid">
   {{#each events}}
-  <div class="event-card">
+  <a href="{{extraction.detail_url}}" target="_blank" class="event-card">
     {{#if extraction.image_url}}
     <img src="{{extraction.image_url}}" alt="{{extraction.title}}" class="event-image" loading="lazy">
     {{else}}
@@ -27,11 +27,9 @@ const eventTemplate = `
       {{#if extraction.description}}
       <div class="event-description">{{truncateDescription extraction.description}}</div>
       {{/if}}
-      {{#if extraction.detail_url}}
-      <a href="{{extraction.detail_url}}" target="_blank" class="event-link">View Details →</a>
-      {{/if}}
+      <div class="event-domain">{{getDomain source_url}}</div>
     </div>
-  </div>
+  </a>
   {{/each}}
 </div>
 `;
@@ -70,6 +68,10 @@ Handlebars.registerHelper('formatDate', function(startDate, endDate, startTime) 
 Handlebars.registerHelper('truncateDescription', function(description) {
     if (!description) return '';
     return description.length > 120 ? description.substring(0, 120) + '...' : description;
+});
+
+Handlebars.registerHelper('getDomain', function(url) {
+    return extractDomain(url) || '';
 });
 
 // Extract domain from URL
